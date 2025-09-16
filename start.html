@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+</head>
+<style>
+  body
+  {
+    margin: 0;
+    background-color: beige;
+  }
+  #content
+  {
+     width: max-content;
+     background-color: beige;
+     position: absolute;
+     transform: translate(-50%, -50%);
+     left: 50%;
+     top: 50%;
+  }
+  #nick
+  {
+    padding: 5px 10px;
+    outline: none;
+    border: none;
+    border-radius: 10px;
+    box-shadow: 4px 4px 5px -3px;
+    font-size: 17pt;
+  }
+  #play
+  {
+    font-size: 15pt;
+    padding: 8px 15px;
+    outline: none;
+    background-color: chartreuse;
+    border: none;
+    border-radius: 10px;
+  }
+  #play:hover
+  {
+    background-color: #08bb7f;
+  }
+</style>
+<body>
+<div id="content">
+  <label for="nick"></label><input type="text" id="nick" placeholder="Nickname">
+  <button id="play">Play</button>
+</div>
+
+<script>
+  document.getElementById("play").onclick = () => {
+    const nick = encodeURIComponent(document.getElementById("nick").value.trim());
+    if (!nick) return alert("Nickname eingeben!");
+    // TODO: Message Popup
+    window.location.href = "index.html?nick=" + nick;
+  };
+</script>
+</body>
+</html>
