@@ -51,7 +51,6 @@
 <script>
   document.getElementById("play").onclick = () => {
     const nick = encodeURIComponent(document.getElementById("nick").value.trim());
-    if (!nick) return alert("Nickname eingeben!");
     // TODO: Message Popup
     window.location.href = "index.html?nick=" + nick;
   };

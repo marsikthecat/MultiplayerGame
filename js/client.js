@@ -1,16 +1,15 @@
-import {radiusToScore} from "./functions.js";
-import {MAP_HEIGHT, MAP_WIDTH, MIN_PLAYER_SIZE, PLAYER_SPEED} from "./constants.js";
+import {getSpeed, getZoom, radiusToScore} from "./functions.js";
+import {MAP_HEIGHT, MAP_WIDTH, MAX_PLAYER_SPEED, MIN_PLAYER_SIZE} from "./constants.js";
 
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
-
-const backGroundCanvas = document.createElement("canvas");
-const bCtx = backGroundCanvas.getContext("2d");
-backGroundCanvas.width = MAP_WIDTH;
-backGroundCanvas.height = MAP_HEIGHT;
-
 canvas.width = window.innerWidth;
 canvas.height = window.innerHeight;
+
+const backGroundCanvas = document.createElement("canvas");
+const backGroundCtx = backGroundCanvas.getContext("2d");
+backGroundCanvas.width = MAP_WIDTH;
+backGroundCanvas.height = MAP_HEIGHT;
 
 const scoreText = document.createElement("p");
 document.documentElement.appendChild(scoreText);
@@ -67,12 +66,11 @@ const myNick = urlParams.get("nick") || "unnamed player";
 
 const ws = new WebSocket("ws://localhost:3000/socket");
 let myId = null;
+let mySpeed = MAX_PLAYER_SPEED;
 let players = {};
 let dots = [];
 let characters = [];
 let bullets = {}
-
-// TODO: If player leaves server by reloading or closing window, remove him (onbeforeunload event)
 
 let lastFrameTime = performance.now();
 let ping = 0;
@@ -81,6 +79,7 @@ function measurePing() {
   const start = performance.now();
   ws.send(JSON.stringify({ type: "ping", start }));
 }
+setInterval(measurePing, 200);
 
 ws.onopen = () => {
   ws.send(JSON.stringify({ type: "join", nickname: myNick }));
@@ -100,6 +99,9 @@ ws.onmessage = (event) => {
     const newPlayer = data.newPlayer;
     players[newPlayer.id] = newPlayer;
   }
+  if (data.type === "removedPlayer") {
+    delete players[data.lostPlayerId];
+  }
   if (data.type === "notify") {
     notify(data.msg);
   }
@@ -109,27 +111,38 @@ ws.onmessage = (event) => {
     player.y = data.newPlayerY;
   }
   if (data.type === "reflect") {
-    direction.x = data.dx / PLAYER_SPEED;
-    direction.y = data.dy / PLAYER_SPEED;
+    direction.x = data.dx / mySpeed;
+    direction.y = data.dy / mySpeed;
   }
   if (data.type === "newRadius") {
     const playerWithNewRadius = players[data.id];
     playerWithNewRadius.radius = data.radius;
   }
   if (data.type === "newDot") {
-    dots.splice(data.i, 1)
-    dots.push(data.newDot);
-    drawBackground()
+    const dotToChange = dots.at(data.i);
+    dotToChange.x = data.newX;
+    dotToChange.y = data.newY;
+    dotToChange.color = data.newColor;
+    drawBackground();
   }
   if (data.type === "newYummy") {
-    characters.splice(data.i, 1);
-    characters.push(data.newYummy);
-    drawBackground()
+    const yummyToChange = characters.at(data.i);
+    yummyToChange.x = data.newX;
+    yummyToChange.y = data.newY;
+    yummyToChange.radius = data.radius;
+    drawBackground();
+  }
+  if (data.type === "biggerYummy") {
+    const yummyToMakeBigger = characters.at(data.index);
+    yummyToMakeBigger.radius = data.newRadius;
+    drawBackground();
   }
   if (data.type === "newHole") {
-    characters.splice(data.i, 1);
-    characters.push(data.newHole);
-    drawBackground()
+    const holeToChange = characters.at(data.i);
+    holeToChange.x = data.newX;
+    holeToChange.y = data.newY;
+    holeToChange.radius = data.newRadius;
+    drawBackground();
   }
   if (data.type === "gameOver") {
     if (data.playerId === myId) {
@@ -155,6 +168,9 @@ ws.onmessage = (event) => {
     const playerWhoFired = players[data.playerId];
     playerWhoFired.radius = data.newRadius;
   }
+  if (data.type === "explosion") {
+    bullets[data.newBullet.id] = data.newBullet;
+  }
   if (data.type === "removeBullet") {
     delete bullets[data.id];
   }
@@ -163,7 +179,7 @@ ws.onmessage = (event) => {
   }
 };
 
-setInterval(measurePing, 250);
+ws.onclose = () => ws.send(JSON.stringify({ type: "quit",  myId}));
 
 function notify(string) {
   const msg = document.createElement("p")
@@ -204,25 +220,25 @@ document.getElementById("toStart").onclick = function () {
 }
 
 function drawBackground() {
-  bCtx.clearRect(0,0, MAP_WIDTH, MAP_HEIGHT);
-  bCtx.fillStyle = "#eee";
-  bCtx.fillRect(0,0, MAP_WIDTH, MAP_HEIGHT);
+  backGroundCtx.clearRect(0,0, MAP_WIDTH, MAP_HEIGHT);
+  backGroundCtx.fillStyle = "#eee";
+  backGroundCtx.fillRect(0,0, MAP_WIDTH, MAP_HEIGHT);
 
   // Draw Dots
   for (let i = 0; i < dots.length; i++) {
     let dot = dots[i];
-    bCtx.fillStyle = dot.color;
-    bCtx.beginPath();
-    bCtx.arc(dot.x, dot.y, dot.radius, 0, Math.PI*2);
-    bCtx.fill();
+    backGroundCtx.fillStyle = dot.color;
+    backGroundCtx.beginPath();
+    backGroundCtx.arc(dot.x, dot.y, dot.radius, 0, Math.PI*2);
+    backGroundCtx.fill();
   }
   // Draw Characters
   for (let i = 0; i < characters.length; i++) {
     let character = characters[i];
-    bCtx.fillStyle = character.color;
-    bCtx.beginPath();
-    bCtx.arc(character.x, character.y, character.radius, 0, Math.PI*2);
-    bCtx.fill();
+    backGroundCtx.fillStyle = character.color;
+    backGroundCtx.beginPath();
+    backGroundCtx.arc(character.x, character.y, character.radius, 0, Math.PI*2);
+    backGroundCtx.fill();
   }
 }
 
@@ -246,10 +262,11 @@ function draw() {
   }
 
   const me = players[myId];
-  const camX = me.x - canvas.width / 2;
-  const camY = me.y - canvas.height / 2;
+  const zoom = getZoom(me.radius);
   ctx.save();
-  ctx.translate(-camX, -camY);
+  ctx.translate(canvas.width / 2, canvas.height / 2);
+  ctx.scale(zoom, zoom);
+  ctx.translate(-me.x, -me.y);
   ctx.drawImage(backGroundCanvas, 0, 0);
 
   // Draw Other players
@@ -319,9 +336,10 @@ canvas.addEventListener("click", e => {
 
 function detectMovement() {
   if (moving) {
-    const dx = direction.x * PLAYER_SPEED;
-    const dy = direction.y * PLAYER_SPEED;
-    ws.send(JSON.stringify({ type: "move", myId, dx, dy }));
+    mySpeed = getSpeed(players[myId].radius);
+    const dx = direction.x * mySpeed;
+    const dy = direction.y * mySpeed;
+    ws.send(JSON.stringify({ type: "move", myId, dx, dy}));
   }
 }
 

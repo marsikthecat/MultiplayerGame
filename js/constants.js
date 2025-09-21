@@ -28,4 +28,5 @@ export const MAP_WIDTH = 3000;
 export const MAP_HEIGHT = 2000;
 export const MIN_PLAYER_SIZE = 25;
 export const BULLET_SPEED = 6;
-export const PLAYER_SPEED = 3;
+export const MAX_PLAYER_SPEED = 4;
+export const MIN_PLAYER_SPEED = 1;

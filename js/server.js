@@ -24,7 +24,7 @@ function spawnDot() {
   };
 }
 function spawnHole() {
-  const size = random(15, 100) * 2;
+  const size = random(15, 50) * 2;
   return {
     name: "hole",
     x: random(0, MAP_WIDTH - size),
@@ -54,17 +54,16 @@ function initializeGame() {
 }
 initializeGame();
 
-function createBullet(id, x, y, dx, dy, color, heading) {
+function createBullet(from, x, y, dx, dy, color) {
   return {
     id: uuidv4(),
-    from: id,
+    from: from,
     x: x,
     y: y,
     dx: dx,
     dy: dy,
     radius: 10,
     color: color,
-    heading: heading
   }
 }
 
@@ -76,6 +75,7 @@ app.ws('/socket', function (ws, req) {
     switch (data.type) {
       case 'join':
         const id = uuidv4();
+        ws.id = id;
         players[id] = {
           id,
           nickname: data.nickname,
@@ -91,6 +91,13 @@ app.ws('/socket', function (ws, req) {
         const msg = `${players[id].nickname} just joined the game`;
         broadcast(JSON.stringify({ type: "notify", msg}))
         broadcast(JSON.stringify( {type: "newPlayer", newPlayer: players[id]}))
+        break;
+      case 'quit':
+        const playerWhoQuit = players[data.myId].nickname;
+        delete players[data.myId];
+        broadcast(JSON.stringify( { type: "removedPlayer", lostPlayerId: data.myId}))
+        const message = `${playerWhoQuit} left the game`;
+        broadcast(JSON.stringify({ type: "notify", message }));
         break;
       case 'move':
         const playerToMove = players[data.myId];
@@ -126,7 +133,6 @@ app.ws('/socket', function (ws, req) {
           avgNum += avg[j];
         }
         console.log("Average (Server)", avgNum / avg.length);
-
         break;
       case "smiley":
         players[data.id].smiley = data.src;
@@ -169,7 +175,10 @@ app.ws('/socket', function (ws, req) {
   });
 
   ws.on('close', function () {
+    const playerWhoLeft = players[ws.id]?.nickname || "Unknown";
     delete players[ws.id];
+    broadcast(JSON.stringify({ type: "removedPlayer", lostPlayerId: ws.id }));
+    broadcast(JSON.stringify({ type: "notify", msg: `${playerWhoLeft} left the game` }));
     clients.delete(ws);
   });
 });
@@ -198,13 +207,17 @@ function checkDotCollision(player) {
     const dy = dot.y - player.y;
     if (dx*dx + dy*dy <= (player.radius + dot.radius)**2) {
       player.radius = newRadius(player.radius, dot.radius);
-      dots.splice(i, 1);
-      const newDot = spawnDot();
-      dots.push(newDot);
+      newRadiusOfPlayer(player.id, player.radius);
+      // Move Dot somewhere else instead of removing it and adding another dot
+      dot.x = random(0, MAP_WIDTH - DOT_SIZE);
+      dot.y =  random(0, MAP_HEIGHT - DOT_SIZE);
+      dot.color = getRandomColor();
       broadcast(JSON.stringify({
         type: "newDot",
         i,
-        newDot
+        newX: dot.x,
+        newY: dot.y,
+        newColor: dot.color,
       }))
     }
   }
@@ -226,28 +239,33 @@ function checkCharacterCollision(player) {
       if (character.name === "yummy") {
         if (checkEatable(character, player)) {
           player.radius = newRadius(player.radius, character.radius);
-          const newYummy = spawnYummy()
-          characters.push(newYummy);
+          newRadiusOfPlayer(player.id, player.radius);
+          character.x = random(0, MAP_WIDTH - 38);
+          character.y = random(0, MAP_HEIGHT - 38);
+          character.radius = 19;
           broadcast(JSON.stringify({
             type: "newYummy",
             i,
-            newYummy
+            newX: character.x,
+            newY: character.y,
+            radius: character.radius
           }))
-          characters.splice(i, 1);
-          newRadiusOfPlayer(player.id, player.radius);
           return;
         }
       } else if (character.name === "hole") {
         if (player.radius > character.radius * 1.2) {
           player.radius *= 0.5;
           newRadiusOfPlayer(player.id, player.radius);
-          characters.splice(i, 1);
-          const newHole = spawnHole();
-          characters.push(newHole);
+          const size = random(15, 100) * 2;
+          character.x = random(0, MAP_WIDTH - size);
+          character.y = random(0, MAP_HEIGHT - size);
+          character.radius = size / 2;
           broadcast(JSON.stringify({
             type: "newHole",
             i,
-            newHole
+            newX: character.x,
+            newY: character.y,
+            newRadius: character.radius,
           }))
           if (player.radius < MIN_PLAYER_SIZE) {
             gameOver(player.id, `${player.nickname} has been eaten by a hole`);
@@ -297,23 +315,23 @@ function moveBullets() {
     bullet.y += bullet.dy * BULLET_SPEED;
     if (
       bullet.y < bullet.radius || bullet.y > MAP_HEIGHT - bullet.radius ||
-      bullet.x < bullet.radius || bullet.x > MAP_WIDTH - bullet.radius
-    ) {
+      bullet.x < bullet.radius || bullet.x > MAP_WIDTH - bullet.radius) {
       removeBullet(id);
       continue;
     }
-    // If bullet collides with hole, remove it
-    for (const hole of characters) {
-      if (hole.name !== "hole") continue;
-      const dx = bullet.x - hole.x;
-      const dy = bullet.y - hole.y;
-      if (dx * dx + dy * dy < (bullet.radius + hole.radius) ** 2) {
+    // Collision check with characters - touches hole: disappear, touches yummy: making bomb ready
+    for (let i = characters.length - 1; i >= 0; i--) {
+      const character = characters[i];
+      const dx = bullet.x - character.x;
+      const dy = bullet.y - character.y;
+      if (dx * dx + dy * dy < (bullet.radius + character.radius) ** 2) {
+        if (character.name === "yummy") {
+          biggerYummy(character, id, i, bullet.x, bullet.y);
+        }
         removeBullet(id);
         break;
       }
     }
-    // TODO: if bullet hit yummy, spread multiple bullets
-    //  and remove yummy or make yummy bigger until it explodes while spreading bullets.
     if (!bullets[id]) continue;
     // Check Collision between bullet and player
     for (const playerId in players) {
@@ -342,6 +360,41 @@ function removeBullet(id) {
   delete bullets[id];
   broadcast(JSON.stringify({ type: "removeBullet", id }));
 }
+
+function biggerYummy(character, id, index, impactX, impactY) {
+  const bullet = bullets[id];
+  if (character.radius > 30) {
+
+    for (let i = 0; i < 6; i++) {
+      const angle = (Math.PI * 2 / 12) * i + Math.random() * 0.2;
+      const dx = Math.cos(angle);
+      const dy = Math.sin(angle);
+
+      const spawnX = impactX + dx * (character.radius + 5);
+      const spawnY = impactY + dy * (character.radius + 5);
+
+      const newBullet = createBullet(
+        bullet.from,
+        spawnX,
+        spawnY,
+        dx * random(0.8, 1.2),
+        dy * random(0.8, 1.2),
+        getRandomColor()
+      );
+      bullets[newBullet.id] = newBullet;
+      broadcast(JSON.stringify({ type: "explosion", newBullet }));
+    }
+    character.radius = 19;
+  } else {
+    character.radius = newRadius(character.radius, bullet.radius);
+  }
+  broadcast(JSON.stringify({
+    type: "biggerYummy",
+    newRadius: character.radius,
+    index
+  }));
+}
+
 
 function newRadiusOfPlayer(id, radius) {
   broadcast(JSON.stringify( {type: "newRadius", id, radius }));
