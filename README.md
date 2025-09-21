@@ -2,8 +2,8 @@
 
 This is a small multiplayer browser game  based on canvas, where players collect colorful dots, chase and eat other players, shoot bullets, and dynamically grow or shrink. The goal is to survive and become the biggest player on the map.
 
-![Screenshot](Screenshot1.png) 
-![Screenshot](Screenshot2.png) 
+![Screenshot](screenshots/Screenshot1.png)
+![Screenshot](screenshots/Screenshot2.png)
 
 ## Features
 
@@ -20,8 +20,8 @@ This is a small multiplayer browser game  based on canvas, where players collect
 
 ## Controls
 
-- **Click**: Move your player 
-- **click on player**: Stop  
+- **Click**: Move your player
+- **click on player**: Stop
 - **Enter**: Shoot
 
 ## Setup
